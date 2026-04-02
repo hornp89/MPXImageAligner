@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MPXImageAligner"
+version = "0.1.0"
+description = "Multiplexed image alignment tool with GUI and CLI interfaces"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas==3.0.1",
+    "matplotlib==3.10.8",
+    "scipy==1.17.1",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "tqdm==4.67.3",
+    "tifffile==2026.3.3",
+   # "czifile==2019.7.2.3",
+    "pylibCZIrw==6.0.1",
+    "PyQt6==6.6.1",
+    "PyQt6-Qt6==6.6.2",
+    "PyQt6-sip==13.6.0",
+]
+
+[project.scripts]
+MPXImageAligner = "mpximagealigner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

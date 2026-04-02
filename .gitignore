@@ -1,0 +1,14 @@
+.build
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+*.png
+
+.legacy
+
+requirements.txt
+requirements_cuda.txt
+.src/MPXImageAligner.egg-info
+

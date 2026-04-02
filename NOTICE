@@ -1,0 +1,12 @@
+MPX Image Aligner
+Copyright (C) 2026 Paul Horn
+
+This project incorporates modified source code from TorchRegister
+(https://github.com/AgamChopra/TorchRegister),
+Copyright (C) 2023 Agam Chopra,
+licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+The modified files are located in src/mpximagealigner/torchregister/ and
+consist of torchregister.py, utils.py, and warpings.py. Modifications include
+repackaging into the mpximagealigner namespace and adjustments to the public
+API for integration with the MPX Image Aligner pipeline.
