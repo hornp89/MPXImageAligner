@@ -485,6 +485,20 @@ def run_alignment(
                         best_run = (max_final_loss, ref_file_no_cur, ref_file, ref_shape)
 
                     ref_file_no = ref_file_no_cur + 1
+                
+                dapi_cache = build_dapi_cache(files, ref_shape, size_factor=size_factor, 
+                                              device=device, cache_dir=dapi_cache_dir)
+                
+                ref_file = best_run[2]
+                ref_shape = best_run[3]
+                
+                thetas, losses = _train_all(ref_file, ref_shape, size_factor=size_factor, 
+                                                lr=lr, num_epochs=num_epochs)
+                if thetas is None:
+                    print("Alignment cancelled.")
+                    return
+                
+                
             else:
                 print("Writing cached DAPI tensors to:", dapi_cache_dir)
                 dapi_cache = build_dapi_cache(files, ref_shape, size_factor=size_factor, 
