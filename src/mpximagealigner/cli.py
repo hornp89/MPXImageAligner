@@ -60,6 +60,14 @@ def _build_align_parser(argparser: argparse.ArgumentParser) -> None:
                 "Smaller tiles reduce VRAM usage but may increase processing time."
         )
     argparser.add_argument(
+        "--random_starts", type=int, default=24,
+        help="Number of random initializations for registration (default: 24)."
+    )
+    argparser.add_argument(
+        "--seed", type=int, default=0,
+        help="Random seed for reproducibility (default: 0)."
+    )
+    argparser.add_argument(
         "--no_plot_show", action="store_true",
         help="Do not display the training loss plot."
     )
@@ -111,6 +119,8 @@ def main() -> None:
             plot_show=not args.no_plot_show,
             plot_save=not args.no_plot_save,
             save_loss=not args.no_save_loss,
+            random_starts=args.random_starts,
+            seed=args.seed
         )
 
 

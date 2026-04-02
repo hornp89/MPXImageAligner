@@ -115,6 +115,8 @@ MPXImageAligner align <src_dir> [options]
 | `--lr` | `1` | Learning rate. Normally, you should not need to adjust this. |
 | `--num_epochs` | `5` | Number of training epochs |
 | `--tile_size` | `4096` | Tile size for tiled processing. Adjust according to available RAM/VRAM |
+| `--random_starts` | `24` | Number of random starts for parameter initialization. Higher values increase likelihood of finding the optimal solution but training time will scale linearly. |
+| `--seed` | `0` | random seed for random starts parameter initialization. |
 | `--device` | auto | Compute device: `cpu` or `cuda` |
 | `--no_plot_show` | — | Do not display the loss plot |
 | `--no_plot_save` | — | Do not save the loss plot |

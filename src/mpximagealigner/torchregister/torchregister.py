@@ -48,7 +48,7 @@ class Register():
 
 
 
-    def optim(self, moving, target, lr=1, max_epochs=1000):
+    def optim(self, moving, target, lr=1, max_epochs=1000, random_starts=24, seed=0, init_params=None):
         '''
         Optimization loop to get deformation matrix/flow-field
 
@@ -69,29 +69,20 @@ class Register():
 
         '''
         if self.mode == 'affine':
-            if self.criterion is not None and self.weight is not None:
-                _, theta, losses = affine_register(moving, target, lr=lr, epochs=max_epochs, device=self.device,
-                                                    criterions=self.criterion, weights=self.weight)
-            elif self.weight is not None:
-                _, theta, losses = affine_register(moving, target, lr=lr, epochs=max_epochs, device=self.device,
-                                                    weights=self.weight)
-            else:
-                _, theta, losses = affine_register(moving, target, lr=lr, epochs=max_epochs,
-                                                    device=self.device)
+            _, theta, losses, save_p = affine_register(moving, target, lr=lr, epochs=max_epochs, init_params=init_params,
+                                               random_starts=random_starts, seed=seed,
+                                               device=self.device)
             self.theta = theta[-1]
             self.losses = losses[-1]
+            self.save_p = save_p
 
         else:
-            if self.criterion is not None and self.weight is not None:
-                _, theta, losses = rigid_register(moving, target, lr=lr, epochs=max_epochs, device=self.device,
-                                                  criterions=self.criterion, weights=self.weight)
-            elif self.weight is not None:
-                _, theta, losses = rigid_register(moving, target, lr=lr, epochs=max_epochs, device=self.device,
-                                                  weights=self.weight)
-            else:
-                _, theta, losses = rigid_register(moving, target, lr=lr, epochs=max_epochs, device=self.device)
+            _, theta, losses, save_p = rigid_register(moving, target, lr=lr, epochs=max_epochs, init_params=init_params,
+                                              random_starts=random_starts, seed=seed, 
+                                              device=self.device)
             self.theta = theta[-1]
             self.losses = losses[-1]
+            self.save_p = save_p
 
     def __call__(self, moving):
         '''

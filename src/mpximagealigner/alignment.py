@@ -210,7 +210,8 @@ def save_channel_names(channel_names, files_list, out_dir):
     df.to_csv(os.path.join(out_dir, "channel_names.csv"), index=True)
 
 def get_affine_model(ref_file, target_file, ref_shape, size_factor, device, 
-                     lr=1, max_epochs=5, dapi_cache=None):
+                     lr=1, max_epochs=5, init_params=None, 
+                     random_starts=24, seed=0, dapi_cache=None):
     """
     Generates theta coefficients for affine registration of a target image to a reference image.
 
@@ -222,6 +223,9 @@ def get_affine_model(ref_file, target_file, ref_shape, size_factor, device,
         device (torch.device): Device to run the model on.
         lr (float, optional): Learning rate for the optimization. Defaults to 1e-3.
         max_epochs (int, optional): Maximum number of epochs for training. Defaults to 150.
+        init_params (torch.Tensor, optional): Initial transformation parameters. Defaults to None.
+        random_starts (int, optional): Number of random starts for optimization. Defaults to 24.
+        seed (int, optional): Random seed for reproducibility. Defaults to 0.
         dapi_cache (dict, optional): Pre-built DAPI cache. Defaults to None.
 
     Returns:
@@ -238,19 +242,22 @@ def get_affine_model(ref_file, target_file, ref_shape, size_factor, device,
     ref_shape = ref_image.shape[2:]
 
     model = tr.Register(mode='affine', device=device, criterion=None)
-    model.optim(target_image, ref_image, max_epochs=max_epochs, lr=lr)
+    model.optim(target_image, ref_image, max_epochs=max_epochs, lr=lr, 
+                init_params=init_params, random_starts=random_starts, seed=seed)
 
     theta = model.theta
     losses = model.losses
+    save_p = model.save_p
 
     del model, ref_image, target_image
     gc.collect()
     torch.cuda.empty_cache()
 
-    return theta, losses
+    return theta, losses, save_p
 
 def get_rigid_model(ref_file, target_file, ref_shape, size_factor, device, 
-                    lr=1, max_epochs=5, dapi_cache=None):
+                    lr=1, max_epochs=5, init_params=None,
+                    random_starts=24, seed=0, dapi_cache=None):
     """
     Generates theta coefficients for rigid registration of a target image to a reference image.
 
@@ -262,6 +269,9 @@ def get_rigid_model(ref_file, target_file, ref_shape, size_factor, device,
         device (torch.device): Device to run the model on.
         lr (float, optional): Learning rate for the optimization. Defaults to 1.
         max_epochs (int, optional): Maximum number of epochs for training. Defaults to 5.
+        init_params (torch.Tensor, optional): Initial transformation parameters. Defaults to None.
+        random_starts (int, optional): Number of random starts for optimization. Defaults to 24.
+        seed (int, optional): Random seed for reproducibility. Defaults to 0.
         dapi_cache (dict, optional): Pre-built DAPI cache. Defaults to None.
 
     Returns:
@@ -277,16 +287,18 @@ def get_rigid_model(ref_file, target_file, ref_shape, size_factor, device,
     ref_shape = ref_image.shape[2:]
 
     model = tr.Register(mode='rigid', device=device, criterion=None)
-    model.optim(target_image, ref_image, max_epochs=max_epochs, lr=lr)
+    model.optim(target_image, ref_image, max_epochs=max_epochs, lr=lr, 
+                init_params=init_params, random_starts=random_starts, seed=seed)
 
     theta = model.theta
     losses = model.losses
+    save_p = model.save_p
 
     del model, ref_image, target_image
     gc.collect()
     torch.cuda.empty_cache()
 
-    return theta, losses
+    return theta, losses, save_p
 
 def pad_or_crop(image, target_shape):
     """
@@ -340,6 +352,8 @@ def run_alignment(
     plot_save=True,
     save_loss=True,
     cancelled=None,
+    random_starts=24,
+    seed=0
 ):
     """
     Run the full multiplexed image alignment pipeline.
@@ -354,7 +368,8 @@ def run_alignment(
         size_factor (int): Downsample factor for registration.
         lr (float): Learning rate.
         num_epochs (int): Number of training epochs.
-        per (float): Fraction of pixels used for training.
+        random_starts (int): Number of random starts for optimization.
+        seed (int): Random seed for reproducibility.
         device (str or torch.device, optional): Compute device. None/'auto' = auto-detect.
         plot_show (bool): Display the training loss plot interactively.
         plot_save (bool): Save the training loss plot to file.
@@ -407,33 +422,41 @@ def run_alignment(
         with tempfile.TemporaryDirectory(prefix="mpx_dapi_cache_") as dapi_cache_dir:
         
             def _train_all(ref_file, ref_shape, size_factor=size_factor, 
-                           lr=lr, num_epochs=num_epochs):
+                           lr=lr, num_epochs=num_epochs, 
+                           init_params=None,
+                           random_starts=random_starts, seed=seed):
                 """Train registration models for all non-reference files.
                 Returns (thetas, losses), or (None, None) if cancelled."""
                 thetas_out = {}
                 losses_out = {}
+                best_init_params = {}
                 for f in files:
                     if cancelled():
                         return None, None
                     if f != ref_file:
                         if method == "rigid":
-                            theta, loss = get_rigid_model(
+                            theta, loss, init_param = get_rigid_model(
                                 ref_file, f, ref_shape=ref_shape, size_factor=size_factor,
-                                device=device, lr=lr, max_epochs=num_epochs,
+                                device=device, lr=lr, max_epochs=num_epochs, 
+                                init_params=init_params[f] if init_params is not None else None,
+                                random_starts=random_starts, seed=seed,
                                 dapi_cache=dapi_cache,
                             )
                         else:
-                            theta, loss = get_affine_model(
+                            theta, loss, init_param = get_affine_model(
                                 ref_file, f, ref_shape=ref_shape, size_factor=size_factor,
-                                device=device, lr=lr, max_epochs=num_epochs,
+                                device=device, lr=lr, max_epochs=num_epochs, 
+                                init_params=init_params[f] if init_params is not None else None,
+                                random_starts=random_starts, seed=seed,
                                 dapi_cache=dapi_cache,
                             )
                         thetas_out[f] = theta
                         losses_out[f] = loss
+                        best_init_params[f] = init_param
                         
                     torch.cuda.empty_cache()
                         
-                return thetas_out, losses_out        
+                return thetas_out, losses_out, best_init_params        
             
             # Training loop: repeat with incremented ref_file_no if loss threshold is not met
             if search_ref:
@@ -448,18 +471,6 @@ def run_alignment(
 
                     ref_file_no_cur = ref_file_no % n_files
                     if ref_file_no_cur in tried_refs:
-                        # All reference files exhausted — re-run training with the best reference
-                        best_max_loss, best_ref_no, best_ref_file, best_ref_shape = best_run
-                        print(
-                            f"Re-running training with the best reference "
-                            f"(ref_file_no={best_ref_no}, max final loss={best_max_loss:.6f})."
-                        )
-                        ref_file = best_ref_file
-                        ref_shape = best_ref_shape
-                        thetas, losses = _train_all(ref_file, ref_shape, size_factor=size_factor, lr=lr, num_epochs=num_epochs)
-                        if thetas is None:
-                            print("Alignment cancelled.")
-                            return
                         break
 
                     tried_refs.add(ref_file_no_cur)
@@ -473,8 +484,8 @@ def run_alignment(
                     del ref_img
                     print("Reference image shape (even-padded):", ref_shape)
 
-                    thetas, losses = _train_all(ref_file, ref_shape, size_factor=size_factor, 
-                                                lr=lr, num_epochs=num_epochs)
+                    thetas, losses, best_init_params = _train_all(ref_file, ref_shape, size_factor=size_factor, 
+                                                lr=lr, num_epochs=num_epochs, random_starts=random_starts, seed=seed)
                     if thetas is None:
                         print("Alignment cancelled.")
                         return
@@ -482,7 +493,7 @@ def run_alignment(
                     max_final_loss = max(loss1[-1] for loss1 in losses.values())
 
                     if best_run is None or max_final_loss < best_run[0]:
-                        best_run = (max_final_loss, ref_file_no_cur, ref_file, ref_shape)
+                        best_run = (max_final_loss, ref_file_no_cur, ref_file, ref_shape, best_init_params)
 
                     ref_file_no = ref_file_no_cur + 1
                 
@@ -491,9 +502,12 @@ def run_alignment(
                 
                 ref_file = best_run[2]
                 ref_shape = best_run[3]
-                
-                thetas, losses = _train_all(ref_file, ref_shape, size_factor=size_factor, 
-                                                lr=lr, num_epochs=num_epochs)
+                best_init_params = best_run[4]
+
+                thetas, losses, _ = _train_all(ref_file, ref_shape, size_factor=size_factor, 
+                                                lr=lr, num_epochs=num_epochs, 
+                                                random_starts=random_starts, seed=seed,
+                                                init_params=best_init_params)
                 if thetas is None:
                     print("Alignment cancelled.")
                     return
@@ -503,8 +517,10 @@ def run_alignment(
                 print("Writing cached DAPI tensors to:", dapi_cache_dir)
                 dapi_cache = build_dapi_cache(files, ref_shape, size_factor=size_factor, 
                                               device=device, cache_dir=dapi_cache_dir)
-                thetas, losses = _train_all(ref_file, ref_shape, size_factor=size_factor, 
-                                                lr=lr, num_epochs=num_epochs)
+                thetas, losses, _ = _train_all(ref_file, ref_shape, size_factor=size_factor, 
+                                                lr=lr, num_epochs=num_epochs, 
+                                                random_starts=random_starts, seed=seed,
+                                                init_params=None)
                 if thetas is None:
                     print("Alignment cancelled.")
                     return
@@ -613,7 +629,7 @@ def run_alignment(
         time_end = time.time()
         
         if search_ref:
-            best_max_loss, best_ref_no, _, _ = best_run
+            best_max_loss, best_ref_no, _, _, _ = best_run
             print(f"(ref_file_no={best_ref_no}, max final loss={best_max_loss:.6f}).")
         
         del thetas, losses

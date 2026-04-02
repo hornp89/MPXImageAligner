@@ -137,6 +137,17 @@ class MainWindow(QMainWindow):
         tilesize_layout.addWidget(QLabel("Tile size (px):"))
         tilesize_layout.addWidget(self.tile_size_spin)
         form.addRow("Tile size:", tilesize_container)
+        
+        self.random_starts_spin = QSpinBox()
+        self.random_starts_spin.setRange(1, 100)
+        self.random_starts_spin.setValue(24)
+        form.addRow("Random starts:", self.random_starts_spin)
+        
+        self.seed_spin = QSpinBox()
+        self.seed_spin.setRange(0, 999999)
+        self.seed_spin.setValue(0)
+        form.addRow("Random seed:", self.seed_spin)
+        
 
         return group
 
@@ -239,7 +250,10 @@ class MainWindow(QMainWindow):
             plot_show=False,   # always off — no blocking matplotlib window in GUI
             plot_save=self.save_plot_check.isChecked(),
             save_loss=self.save_loss_check.isChecked(),
+            random_starts=self.random_starts_spin.value(),
+            seed=self.seed_spin.value()
         )
+
 
         self.run_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)

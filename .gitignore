@@ -8,5 +8,5 @@ __pycache__
 
 requirements.txt
 requirements_cuda.txt
-.src/MPXImageAligner.egg-info
+src/MPXImageAligner.egg-info/
 

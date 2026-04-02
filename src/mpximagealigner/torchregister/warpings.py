@@ -28,96 +28,170 @@ def get_affine_warp(theta, moving):
     return warped
 
 # Affine Registration #
-def affine_register(moving, target, lr=1, epochs=5, tile_size=4096, device='cpu'):
-
-    regressor = AffineRegressor(moving, device=device).to(device=device)
+def affine_register(moving, target, lr=1, epochs=5, tile_size=4096, random_starts=24, seed=0,
+                    init_params=None, device='cpu'):
     
-    params = regressor.parameters()
+    gen = torch.Generator(device=device)
+    gen.manual_seed(seed)
 
-    optimizer = torch.optim.LBFGS(params, lr=lr, max_iter=20, line_search_fn='strong_wolfe')
+    global_best_loss = float("inf")
+    global_best_theta = None
+    global_best_curve = None
+    save_p = None
     
-    criterions = [NCCLoss(device=device)]
-    weights = [1.0]
-    
-    regressor.train()
-    losses_train = []
-
-    def closure(optimizer=optimizer, regressor=regressor, moving=moving, 
-                target=target, criterions=criterions, weights=weights):
-        optimizer.zero_grad(set_to_none=True)
-
-        theta = regressor()  # 3D Affine Matrix
-        warped = affine_warp_tiled(theta, moving, tile_size=tile_size)
-        error = sum([weights[i] * criterions[i](target, warped)
-                    for i in range(len(criterions))])
-        error.backward()
-
-        return error
-    
-    for eps in trange(epochs):
-        error = optimizer.step(closure)
+    for start in trange(random_starts):
+        regressor = Regressor(moving, device)
+        if init_params is not None:
+            with torch.no_grad():
+                regressor.reg.data = init_params.clone().flatten().to(device)
+        
+        criterions = [NCCLoss()]
+        weights = [1.0]
+        
+        save_p = regressor.reg.clone()
         with torch.no_grad():
-            theta = regressor()
+            if start > 0:
+                p = regressor.reg
+                save_p = p.clone()
+                if p.numel() == 3:
+                     # 2D rigid: [angle, tx, ty]
+                    p[0].uniform_(-0.35, 0.35, generator=gen)   # about +-20 deg
+                    p[1].uniform_(-0.20, 0.20, generator=gen)   # normalized translation
+                    p[2].uniform_(-0.20, 0.20, generator=gen)
+                else:    
+                    # 3D rigid: [psi, theta, phi, tx, ty, tz]
+                    p[0:3].uniform_(-0.35, 0.35, generator=gen)
+                    p[3:6].uniform_(-0.15, 0.15, generator=gen)
+                    
+        optimizer = torch.optim.LBFGS(regressor.parameters(), lr=lr, max_iter=20, line_search_fn='strong_wolfe')            
+        losses_train = []
+        run_best_loss = float("inf")
+        run_best_theta = None
+        
+        def create_closure():
+            def closure(optimizer=optimizer, regressor=regressor, moving=moving, 
+                        target=target, criterions=criterions, weights=weights):
+                optimizer.zero_grad(set_to_none=True)
 
-        losses_train.append(error.item())
+                theta = regressor()  # 3D Affine Matrix
+                warped = affine_warp_tiled(theta, moving, tile_size=tile_size)
+                error = sum([weights[i] * criterions[i](target, warped)
+                            for i in range(len(criterions))])
+                error.backward()
 
-        if eps == 0:
-            loss_low = error.item()
-            best_theta = theta.detach()
-        else:
-            if error.item() < loss_low:
-                loss_low = error.item()
-                best_theta = theta.detach()
-    # cleanup
-    del regressor, optimizer, criterions
-    gc.collect()
+                return error
+            return closure
+        
+        closure = create_closure()      
     
-    return None, [best_theta], [losses_train]
+        losses_train = []
+
+        for eps in range(epochs):
+            error = optimizer.step(closure)
+            loss_val = float(error.item())
+            losses_train.append(loss_val)
+            
+        theta = regressor().detach()
+        regressor = AffineRegressor(moving, device=device).to(device=device)
+        regressor.reg.data = theta.flatten()
+    
+        params = regressor.parameters()
+
+        optimizer = torch.optim.LBFGS(params, lr=lr, max_iter=20, line_search_fn='strong_wolfe')
+        
+        regressor.train()
+
+        closure = create_closure()
+
+        for eps in range(epochs):
+            error = optimizer.step(closure)
+            loss_val = float(error.item())
+            losses_train.append(loss_val)
+
+            if loss_val < run_best_loss:
+                run_best_loss = loss_val
+                run_best_theta = regressor().detach()
+
+        if run_best_loss < global_best_loss:
+            global_best_loss = run_best_loss
+            global_best_theta = run_best_theta
+            global_best_curve = losses_train
+
+        del regressor, optimizer, criterions
+        gc.collect()
+
+    return None, [global_best_theta], [global_best_curve], save_p
 
 
 # Rigid Registration #
-def rigid_register(moving, target, lr=1E-5, epochs=1000, tile_size=4096, device='cpu'):
+def rigid_register(moving, target, lr=1E-5, epochs=1000, tile_size=4096, random_starts=12, seed=0, 
+                   init_params=None, device='cpu'):
 
-    regressor = Regressor(moving, device)
-    
-    params = regressor.parameters()
-    optimizer = torch.optim.LBFGS(params, lr=lr, max_iter=20, line_search_fn='strong_wolfe')
-    
-    
-    criterions = [NCCLoss()]
-    weights = [1.0]
+    gen = torch.Generator(device=device)
+    gen.manual_seed(seed)
 
+    global_best_loss = float("inf")
+    global_best_theta = None
+    global_best_curve = None
+    save_p = None
     
-    def closure(optimizer=optimizer, regressor=regressor, moving=moving, 
-                target=target, criterions=criterions, weights=weights):
-        optimizer.zero_grad(set_to_none=True)
-
-        theta = regressor()  # 3D Affine Matrix
-        warped = affine_warp_tiled(theta, moving, tile_size=tile_size)
-        error = sum([weights[i] * criterions[i](target, warped)
-                    for i in range(len(criterions))])
-        error.backward()
-
-        return error
-    
-    losses_train = []
-
-    for eps in trange(epochs):
-        error = optimizer.step(closure)
+    for start in trange(random_starts):
+        regressor = Regressor(moving, device)
+        if init_params is not None:
+            with torch.no_grad():
+                regressor.reg.data = init_params.clone().flatten().to(device)
+                
+        criterions = [NCCLoss()]
+        weights = [1.0]
+            
+        save_p = regressor.reg.clone()
         with torch.no_grad():
-            theta = regressor()
-
-        losses_train.append(error.item())
-
-        if eps == 0:
-            loss_low = error.item()
-            best_theta = theta.detach()
-        else:
-            if error.item() < loss_low:
-                loss_low = error.item()
-                best_theta = theta.detach()
-    # cleanup
-    del regressor, optimizer, criterions
-    gc.collect()
+            if start > 0:
+                p = regressor.reg
+                if p.numel() == 3:
+                     # 2D rigid: [angle, tx, ty]
+                    p[0].uniform_(-0.35, 0.35, generator=gen)   # about +-20 deg
+                    p[1].uniform_(-0.20, 0.20, generator=gen)   # normalized translation
+                    p[2].uniform_(-0.20, 0.20, generator=gen)
+                else:    
+                    # 3D rigid: [psi, theta, phi, tx, ty, tz]
+                    p[0:3].uniform_(-0.35, 0.35, generator=gen)
+                    p[3:6].uniform_(-0.15, 0.15, generator=gen)
+                    
+        optimizer = torch.optim.LBFGS(regressor.parameters(), lr=lr, max_iter=20, line_search_fn='strong_wolfe')            
+        losses_train = []
+        run_best_loss = float("inf")
+        run_best_theta = None
     
-    return None, [best_theta], [losses_train]
+        def closure(optimizer=optimizer, regressor=regressor, moving=moving, 
+                    target=target, criterions=criterions, weights=weights):
+            optimizer.zero_grad(set_to_none=True)
+
+            theta = regressor()  # 3D Affine Matrix
+            warped = affine_warp_tiled(theta, moving, tile_size=tile_size)
+            error = sum([weights[i] * criterions[i](target, warped)
+                        for i in range(len(criterions))])
+            error.backward()
+
+            return error
+        
+        losses_train = []
+
+        for eps in range(epochs):
+            error = optimizer.step(closure)
+            loss_val = float(error.item())
+            losses_train.append(loss_val)
+
+            if loss_val < run_best_loss:
+                run_best_loss = loss_val
+                run_best_theta = regressor().detach()
+
+        if run_best_loss < global_best_loss:
+            global_best_loss = run_best_loss
+            global_best_theta = run_best_theta
+            global_best_curve = losses_train
+
+        del regressor, optimizer, criterions
+        gc.collect()
+
+    return None, [global_best_theta], [global_best_curve], save_p
